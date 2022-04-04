@@ -1,0 +1,157 @@
+---
+title: "library-analysis"
+author: "Owen Looney"
+date: "04/04/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r data load, echo=FALSE}
+#loading libraries
+library(rvest)
+library(stringr)
+library(purrr)
+library(plyr)
+library(shiny)
+library(dplyr)
+library(lubridate)
+library(leaflet)
+library(sf)
+library(sp)
+
+#loading base website
+base_website <- "https://www.data.brisbane.qld.gov.au/data/dataset/library-checkouts-branch-date"
+
+#extracting links with library checkout data
+urls <- read_html(base_website) %>%
+  html_nodes("a") %>%
+  html_attr("href") %>%
+  str_subset("\\.zip") %>%
+  as.list()
+
+#extracting url link with acronym data
+acronym_url <- read_html(base_website) %>%
+  html_nodes("a") %>%
+  html_attr("href") %>%
+  str_subset("\\.csv$") 
+
+#after reading in file, it was found colnames are not same across files (have minor differences)
+# as some are separated with a "." and others are not
+#reading in initial dataframe and applying col names to each df so when appending there are no issues
+
+#reading in initial file column names
+temp_file <- tempfile()
+#downloading file to a temp location
+col_name_file <- download.file(url = urls[[1]],temp_file)
+#unzipping file to get a csv
+csv_col_name_df <- unzip(temp_file, list = T)
+#reading csv and getting colnames from file
+csv_col_names <- colnames(read.csv(unz(temp_file,csv_col_name_df$Name)))
+
+
+#creating a function to download and read data from each zipped url file & apply same colnames to each file
+test_function <- function (download_url) {
+  #creating tempfile for url to download 
+  temp <- tempfile()
+  
+  # downloading urls
+  download.file(url = download_url, temp)
+  
+  #unzipping listed files
+  list.files <- unzip(temp,list=TRUE)
+  
+  #reading unzipped listed files
+  data <- read.csv(unz(temp,list.files$Name[1]))
+  
+  #applying same colnames to each df
+  colnames(data) <- csv_col_names
+  
+  #returning the dataframe read in
+  return(data)
+  
+}
+
+#creating list of dataframes from each downloaded file
+test <- map(urls,test_function)
+
+#appending all library records into one dataframe
+dataframe <- ldply(test, rbind)
+
+#cleaning checkout df to have dates in useful format etc.
+checkouts <- dataframe %>%
+  mutate(Datetime = as_datetime(
+    paste0(str_sub(Date, 1,4),
+           "-", 
+           str_sub(Date,5,6),
+           "-", 
+           str_sub(Date,7,8),
+           " ",
+           str_sub(Date,9,10),
+           ":",
+           str_sub(Date,11,12),
+           ":",
+           str_sub(Date,13,14)),
+    format = "%Y-%m-%d %H:%M:%S"),
+    Date = as_date(Datetime))
+
+#reading in acronym url data
+acronym_df <- read.csv(acronym_url)
+
+#splitting acronum url data into 3 data sets for easier use later on
+#branch split
+branch_df <- acronym_df[,1:2] %>%
+  #removing all blank rows
+  filter(Branch.Code!= "")
+
+#heading split
+heading_df <- acronym_df[,4:5] %>%
+  #removing all blank rows
+  filter(Heading != "")
+
+
+#loading library locations dataset
+library_locations <- read.csv("https://www.data.brisbane.qld.gov.au/data/dataset/6fc6ea2a-46d5-4339-a4b9-0f63ce5cfac4/resource/0f223803-897b-46e3-8fbb-930ad1925673/download/brisbane-city-council-libraries-information-dec-2020.csv") %>% 
+  #adding a name variable to make it easier to join to other datasets without a branch code
+  mutate(name = gsub("Library", "", Venue)) %>%
+  #converting the long & lat to coords for easier plotting
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326)
+
+```
+
+
+
+```{r library_map}
+#creating a book icon for the map markers of libraries
+iconSet <- awesomeIconList(
+  library = makeAwesomeIcon(
+    icon = 'book',
+    library = 'fa',
+    iconColor = 'gold',
+    markerColor = 'blue',
+    spin = F)
+)
+
+#plotting libraries on map
+leaflet() %>%
+  addProviderTiles("Stamen.TonerLite", group = "Base") %>%
+  addProviderTiles(providers$OpenStreetMap, group = "Street map") %>%
+  addAwesomeMarkers(data = library_locations,
+                    label = library_locations$Venue,
+                    icon = ~iconSet,
+                    group = "libraries") %>%
+  addLayersControl(baseGroups = c("Street map","Base"),
+                   overlayGroups = c("libraries"),
+                   options = layersControlOptions(collapsed = FALSE)) %>%
+  hideGroup(c("libraries"))
+  
+
+
+
+
+
+```
+
+
