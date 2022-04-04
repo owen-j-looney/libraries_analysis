@@ -1,4 +1,6 @@
-# libraries_analysis
+layout: page
+title: "Library Analysis"
+permalink: /owen-j-looney.github.io/libraries-analysis/
 
 <!DOCTYPE html>
 
