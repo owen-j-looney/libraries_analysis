@@ -1,6 +1,6 @@
 layout: page
 title: "Library Analysis"
-permalink: /owen-j-looney.github.io/libraries-analysis/
+permalink: /libraries-analysis/
 
 <!DOCTYPE html>
 
