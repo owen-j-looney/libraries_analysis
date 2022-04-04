@@ -6,7 +6,11 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
 ```
 
 ```{r data load, echo=FALSE}
@@ -122,8 +126,9 @@ library_locations <- read.csv("https://www.data.brisbane.qld.gov.au/data/dataset
 ```
 
 
+# Map of libraries across Brisbane
 
-```{r library_map}
+```{r library_map, echo=FALSE, message=FALSE, warning=FALSE}
 #creating a book icon for the map markers of libraries
 iconSet <- awesomeIconList(
   library = makeAwesomeIcon(
