@@ -1,7 +1,5 @@
 ---
-title: "library-analysis"
-author: "Owen Looney"
-date: "04/04/2022"
+title: "libraries-analysis"
 output: html_document
 ---
 
@@ -129,8 +127,6 @@ library_locations <- read.csv("https://www.data.brisbane.qld.gov.au/data/dataset
 
 ```
 
-# Libraries analysis
-
 ### Choose a Tab {.tabset .tabset-fade .tabset-dropdown}
 #### Map of libraries across Brisbane
 
@@ -178,10 +174,94 @@ ggplot(data = checkouts_grouped) +
        y = "Number of books borrowed",
        title = "Number of books borrowed from each library by age category")+
   theme(axis.text.x = element_text(angle = 45, hjust = 0.95, size = 7))
-  
+```
+
+
+
+```{r reactable table, eval=FALSE, include=FALSE}
+library(reactable)
+library(crosstalk)
+library(tidyr)
+
+checkouts_grouped_month_year <- checkouts %>%
+  inner_join(branch_df, by = c("Checkout.Library" = "Branch.Code")) %>%
+  #only missing library branch code is LHQ which i am unable to ascertain what this library is
+  group_by(Branch.Heading, format(Date, "%Y/%m")) %>%
+  summarise(count = n(),
+            Date = format(Date, "%Y/%m")) %>%
+  unique() %>%
+  arrange(Date,
+          -count) %>%
+  ungroup() %>%
+  group_by(Date)%>%
+  top_n(n = 3, wt = count) %>%
+  spread(Branch.Heading, count)
+
+
+#creating a colour pallette to help show the scale of numbers
+bcc_pal <- function(x) rgb(colorRamp(c("#006bb7","gold"))(x),maxColorValue = 255)
+
+shared_data <- SharedData$new(checkouts_grouped_month_year)
+#outtbl <-
+  reactable(
+    shared_data,
+    searchable = T,
+    filterable = T,
+    columns = list(
+      antecedents = colDef(show = T),
+      consequents = colDef(show = T),
+      antecedent_support= colDef(show = T,
+                                   format = colFormat(suffix = "%", separators = F)),
+      consequent_support= colDef(show = T,
+                                   format = colFormat(suffix = "%", separators = F)),
+      support = colDef(
+        style = function(value) {
+          normalised <- (value-min(apriori_data$support))/(max(apriori_data$support)-min(apriori_data$support))
+          color <- orange_pal(normalised)
+          list(background = color)
+        },
+        format = colFormat(suffix = " checkouts", separators = F)
+      ),
+      #hiding the individual comments columns
+      Comments_1 = colDef(show = F),
+      Comments_2 = colDef(show = F),
+      Comments_3 = colDef(show = F),
+      Comments_4 = colDef(show = F),
+      Comments_5 = colDef(show = F),
+      Details = colDef(
+        name = "Comments",
+        sortable = F,
+        cell = function() htmltools::tags$button("Show comments"))
+      ),
+    #making the table be sorted by lift by default
+    defaultSorted = "lift",
+    defaultSortOrder = "desc",
+    resizable = T,
+    wrap = T,
+    bordered = T,
+    elementId = "apriori-table",
+    #combining all comments into a single popup when button is clicked
+    onClick = JS("function(rowInfo,colInfo) {
+                 // Only handle events on the details column
+                 if (colInfo.id !== 'Details') {
+                 return
+                 }
+                 // Display an alert dialog with details for the row
+                 window.alert(JSON.stringify(rowInfo.row['Comments_1'],null,1) +
+                 '\\n' + '\\n' +
+                 JSON.stringify(rowInfo.row['Comments_2'],null,1) +
+                 '\\n' + '\\n' +
+                  JSON.stringify(rowInfo.row['Comments_3'],null,1) +
+                  '\\n' +'\\n' +
+                  JSON.stringify(rowInfo.row['Comments_4'],null,1) +
+                  '\\n' + '\\n' +
+                  JSON.stringify(rowInfo.row['Comments_5'],null,1))
+                 }")
+  )
+outtbl
+
 
 
 
 ```
-
 
