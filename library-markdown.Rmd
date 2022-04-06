@@ -13,6 +13,8 @@ knitr::opts_chunk$set(
 )
 ```
 
+
+
 ```{r data load, echo=FALSE}
 #loading libraries
 library(rvest)
@@ -25,6 +27,7 @@ library(lubridate)
 library(leaflet)
 library(sf)
 library(sp)
+library(ggplot2)
 
 #loading base website
 base_website <- "https://www.data.brisbane.qld.gov.au/data/dataset/library-checkouts-branch-date"
@@ -108,7 +111,8 @@ acronym_df <- read.csv(acronym_url)
 #branch split
 branch_df <- acronym_df[,1:2] %>%
   #removing all blank rows
-  filter(Branch.Code!= "")
+  filter(Branch.Code!= "") %>%
+  add_row(Branch.Code = "KEN", Branch.Heading = "Kenmore")
 
 #heading split
 heading_df <- acronym_df[,4:5] %>%
@@ -125,8 +129,10 @@ library_locations <- read.csv("https://www.data.brisbane.qld.gov.au/data/dataset
 
 ```
 
+# Libraries analysis
 
-# Map of libraries across Brisbane
+### Choose a Tab {.tabset .tabset-fade .tabset-dropdown}
+#### Map of libraries across Brisbane
 
 ```{r library_map, echo=FALSE, message=FALSE, warning=FALSE}
 #creating a book icon for the map markers of libraries
@@ -151,9 +157,28 @@ leaflet() %>%
                    overlayGroups = c("libraries"),
                    options = layersControlOptions(collapsed = FALSE)) %>%
   hideGroup(c("libraries"))
+
+```
+
+#### Number of borrowed books
+```{r borrowed books, echo=FALSE}
+checkouts_grouped <- checkouts %>%
+  inner_join(branch_df, by = c("Checkout.Library" = "Branch.Code")) %>%
+  #only missing library branch code is LHQ which i am unable to ascertain what this library is
+  group_by(Branch.Heading, Age) %>%
+  summarise(count = n()) %>%
+  filter(Age %in% c("ADULT","JUVENILE","YA"))
   
 
-
+ggplot(data = checkouts_grouped) +
+  geom_col(aes(fill = Age, y = count, x = Branch.Heading),
+           position = "stack", show.legend = T)+
+  theme_classic()+
+  labs(x = "BCC Library Branch",
+       y = "Number of books borrowed",
+       title = "Number of books borrowed from each library by age category")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 0.95, size = 7))
+  
 
 
 
