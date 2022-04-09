@@ -1,5 +1,4 @@
 ---
-title: "libraries-analysis"
 output: html_document
 ---
 
@@ -11,7 +10,7 @@ knitr::opts_chunk$set(
 )
 ```
 
-
+This webpage is a very basic analysis of BCC libraries and their data. Included is an interactice map showing all BCC libraries, a simple graph showing some of the types of books borrowed at each library, and an interactive table that highlights the top borrowed from libraries each month. To filter through these features, simply select any of them from the tab below. 
 
 ```{r data load, echo=FALSE}
 #loading libraries
@@ -26,6 +25,7 @@ library(leaflet)
 library(sf)
 library(sp)
 library(ggplot2)
+library(glue)
 
 #loading base website
 base_website <- "https://www.data.brisbane.qld.gov.au/data/dataset/library-checkouts-branch-date"
@@ -151,12 +151,12 @@ leaflet() %>%
                     group = "libraries") %>%
   addLayersControl(baseGroups = c("Street map","Base"),
                    overlayGroups = c("libraries"),
-                   options = layersControlOptions(collapsed = FALSE)) %>%
-  hideGroup(c("libraries"))
+                   options = layersControlOptions(collapsed = FALSE)) 
+#%>%  hideGroup(c("libraries"))
 
 ```
 
-#### Number of borrowed books
+#### Types of borrowed books
 ```{r borrowed books, echo=FALSE}
 checkouts_grouped <- checkouts %>%
   inner_join(branch_df, by = c("Checkout.Library" = "Branch.Code")) %>%
@@ -176,9 +176,10 @@ ggplot(data = checkouts_grouped) +
   theme(axis.text.x = element_text(angle = 45, hjust = 0.95, size = 7))
 ```
 
+#### Number of borrowed books by top libraries
 
-
-```{r reactable table, eval=FALSE, include=FALSE}
+This table shows the number of books borrowed by the top 3 libraries each month
+```{r reactable table, echo=FALSE}
 library(reactable)
 library(crosstalk)
 library(tidyr)
@@ -195,51 +196,67 @@ checkouts_grouped_month_year <- checkouts %>%
   ungroup() %>%
   group_by(Date)%>%
   top_n(n = 3, wt = count) %>%
-  spread(Branch.Heading, count)
+  mutate(Branch1 = Branch.Heading,
+         Branch1BookCount = count,
+         Branch2 = lead(Branch.Heading, 1),
+         Branch2BookCount = lead(count,1),
+         Branch3 = lead(Branch.Heading,2),
+         Branch3BookCount = lead(count,2),
+         Comments_1 = glue("The library with the most books borrowed was {Branch1} Library with a total of {Branch1BookCount} books borrowed."),
+         Comments_2 = glue("The library with the second most books borrowed was {Branch2} Library with a total of {Branch2BookCount} books borrowed."),
+         Comments_3 = glue("The library with the most books borrowed was {Branch3} Library with a total of {Branch3BookCount} books borrowed."),
+         Details = NA) %>%
+  top_n(n=1, wt = count) %>%
+  select(-Branch.Heading,
+         -`format(Date, "%Y/%m")`,
+         -count)
 
 
 #creating a colour pallette to help show the scale of numbers
 bcc_pal <- function(x) rgb(colorRamp(c("#006bb7","gold"))(x),maxColorValue = 255)
 
 shared_data <- SharedData$new(checkouts_grouped_month_year)
-#outtbl <-
+
+outtbl <-
   reactable(
     shared_data,
     searchable = T,
     filterable = T,
     columns = list(
-      antecedents = colDef(show = T),
-      consequents = colDef(show = T),
-      antecedent_support= colDef(show = T,
-                                   format = colFormat(suffix = "%", separators = F)),
-      consequent_support= colDef(show = T,
-                                   format = colFormat(suffix = "%", separators = F)),
-      support = colDef(
-        style = function(value) {
-          normalised <- (value-min(apriori_data$support))/(max(apriori_data$support)-min(apriori_data$support))
-          color <- orange_pal(normalised)
+      Date = colDef(show = T),
+      Branch1 = colDef(show = T),
+      Branch1BookCount= colDef(show = T,
+                               format = colFormat(suffix = " books",
+                                                  separators = F),
+                               style = function(value) {
+                                 normalised <- (value-min(checkouts_grouped_month_year$Branch1BookCount))/(max(checkouts_grouped_month_year$Branch1BookCount)-min(checkouts_grouped_month_year$Branch1BookCount))
+          color <- bcc_pal(normalised)
           list(background = color)
-        },
-        format = colFormat(suffix = " checkouts", separators = F)
-      ),
+        }),
+      Branch2 = colDef(show = T),
+      Branch2BookCount= colDef(show = T,
+                               format = colFormat(suffix = " books",
+                                                  separators = F)),
+      Branch3 = colDef(show = T),
+      Branch3BookCount= colDef(show = T,
+                               format = colFormat(suffix = " books",
+                                                  separators = F)),
       #hiding the individual comments columns
       Comments_1 = colDef(show = F),
-      Comments_2 = colDef(show = F),
-      Comments_3 = colDef(show = F),
-      Comments_4 = colDef(show = F),
-      Comments_5 = colDef(show = F),
+    Comments_2 = colDef(show = F),
+    Comments_3 = colDef(show = F),
       Details = colDef(
         name = "Comments",
         sortable = F,
         cell = function() htmltools::tags$button("Show comments"))
       ),
     #making the table be sorted by lift by default
-    defaultSorted = "lift",
+    defaultSorted = "Date",
     defaultSortOrder = "desc",
     resizable = T,
     wrap = T,
     bordered = T,
-    elementId = "apriori-table",
+    elementId = "library-checkouts-table",
     #combining all comments into a single popup when button is clicked
     onClick = JS("function(rowInfo,colInfo) {
                  // Only handle events on the details column
@@ -249,19 +266,13 @@ shared_data <- SharedData$new(checkouts_grouped_month_year)
                  // Display an alert dialog with details for the row
                  window.alert(JSON.stringify(rowInfo.row['Comments_1'],null,1) +
                  '\\n' + '\\n' +
-                 JSON.stringify(rowInfo.row['Comments_2'],null,1) +
-                 '\\n' + '\\n' +
-                  JSON.stringify(rowInfo.row['Comments_3'],null,1) +
-                  '\\n' +'\\n' +
-                  JSON.stringify(rowInfo.row['Comments_4'],null,1) +
-                  '\\n' + '\\n' +
-                  JSON.stringify(rowInfo.row['Comments_5'],null,1))
+                 JSON.stringify(rowInfo.row['Comments_2'],null,1)+
+                 '\\n' + '\\n' + 
+                 JSON.stringify(rowInfo.row['Comments_3'],null,1))
                  }")
   )
+
+
 outtbl
-
-
-
-
 ```
 
