@@ -17,6 +17,8 @@ This webpage is a very basic analysis of BCC libraries and their data. Included 
 library(rvest)
 library(stringr)
 library(purrr)
+library(dplyr)
+library(tidyverse)
 library(plyr)
 library(shiny)
 library(dplyr)
@@ -26,6 +28,8 @@ library(sf)
 library(sp)
 library(ggplot2)
 library(glue)
+library(osrm)
+library(smoothr)
 
 #loading base website
 base_website <- "https://www.data.brisbane.qld.gov.au/data/dataset/library-checkouts-branch-date"
@@ -117,18 +121,23 @@ heading_df <- acronym_df[,4:5] %>%
   #removing all blank rows
   filter(Heading != "")
 
+projcrs <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
 
 #loading library locations dataset
 library_locations <- read.csv("https://www.data.brisbane.qld.gov.au/data/dataset/6fc6ea2a-46d5-4339-a4b9-0f63ce5cfac4/resource/0f223803-897b-46e3-8fbb-930ad1925673/download/brisbane-city-council-libraries-information-dec-2020.csv") %>% 
   #adding a name variable to make it easier to join to other datasets without a branch code
-  mutate(name = gsub("Library", "", Venue)) %>%
+  mutate(name = gsub("Library", "", Venue),
+         lon = Longitude,
+         lat = Latitude) %>%
   #converting the long & lat to coords for easier plotting
-  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326)
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = st_crs(4326))
 
 ```
 
 ### Choose a Tab {.tabset .tabset-fade .tabset-dropdown}
 #### Map of libraries across Brisbane
+
+Below is a map of libraries located across Brisbane, and this map now includes approximate drive times from a single library. This was done to assess if there are potential areas that could require new libraries to be built.
 
 ```{r library_map, echo=FALSE, message=FALSE, warning=FALSE}
 #creating a book icon for the map markers of libraries
@@ -141,6 +150,31 @@ iconSet <- awesomeIconList(
     spin = F)
 )
 
+#creating the isochrones (distances from libraries)
+isochrone <- map2(library_locations$lon, library_locations$lat, 
+                  ~ osrmIsochrone(loc = c(.x, .y),
+                                  breaks = seq(0, 10, 2), returnclass = "sf", res = 50)) %>% do.call(what = rbind)
+#making sure the geometries are valid
+isochrone <- st_make_valid(isochrone)
+
+#iso <- isochrone %>% group_by(min, max) %>% st_union()
+
+#creating a function to calculate a geometry for each distance from the libraries
+isochrones_function <- function(i) {
+  isochrone_test <- isochrone %>% filter(id == i)
+  isochrones_union <- st_union(isochrone_test) %>% st_transform("+init=epsg:4326")
+  return(isochrones_union)
+}
+
+#creating the 
+isochrone1 <- isochrones_function(1) %>% smooth(method = "chaikin", refinements = 5)
+isochrone2 <- isochrones_function(2) %>% smooth(method = "chaikin", refinements = 5)
+isochrone3 <- isochrones_function(3) %>% smooth(method = "chaikin", refinements = 5)
+isochrone4 <- isochrones_function(4) %>% smooth(method = "chaikin", refinements = 5)
+isochrone5 <- isochrones_function(5) %>% smooth(method = "chaikin", refinements = 5)
+
+
+  
 #plotting libraries on map
 leaflet() %>%
   addProviderTiles("Stamen.TonerLite", group = "Base") %>%
@@ -149,12 +183,51 @@ leaflet() %>%
                     label = library_locations$Venue,
                     icon = ~iconSet,
                     group = "libraries") %>%
+  addPolygons(data = isochrone5,
+              fillOpacity=0.25,
+              fill = T,
+              fillColor = "blue",
+              opacity = 0,
+              popup = "8-10 minutes from a library",
+              group = "Drive time") %>%
+  addPolygons(data = isochrone4,
+              fillOpacity=0.4,
+              fill = T,
+              fillColor = "green",
+              opacity = 0,
+              popup = "6-8 minutes from a library",
+              group = "Drive time") %>%
+  addPolygons(data = isochrone3,
+              fillOpacity=0.5,
+              fill = T,
+              fillColor = "yellow",
+              opacity = 0,
+              popup = "4-6 minutes from a library",
+              group = "Drive time") %>%
+  addPolygons(data = isochrone2,
+              fillOpacity=0.75,
+              fill = T,
+              fillColor = "orange",
+              opacity = 0,
+              popup = "2-4 minutes from a library",
+              group = "Drive time") %>%
+  addPolygons(data = isochrone1,
+              fillOpacity=0.9,
+              fill = T,
+              fillColor = "red",
+              opacity = 0,
+              popup = "0-2 minutes from a library",
+              group = "Drive time") %>%
   addLayersControl(baseGroups = c("Street map","Base"),
-                   overlayGroups = c("libraries"),
+                   overlayGroups = c("libraries", "Drive time"),
                    options = layersControlOptions(collapsed = FALSE)) 
-#%>%  hideGroup(c("libraries"))
+
+
 
 ```
+
+One thing to note is that the drive time approximation is quite rough, and this is due to there being limited computing power to run these complex geospatial calculations. With more time and computing power, the spatial aspects will improve significantly.
+
 
 #### Types of borrowed books
 ```{r borrowed books, echo=FALSE}
@@ -162,7 +235,7 @@ checkouts_grouped <- checkouts %>%
   inner_join(branch_df, by = c("Checkout.Library" = "Branch.Code")) %>%
   #only missing library branch code is LHQ which i am unable to ascertain what this library is
   group_by(Branch.Heading, Age) %>%
-  summarise(count = n()) %>%
+  dplyr::summarise(count = n()) %>%
   filter(Age %in% c("ADULT","JUVENILE","YA"))
   
 
@@ -188,7 +261,7 @@ checkouts_grouped_month_year <- checkouts %>%
   inner_join(branch_df, by = c("Checkout.Library" = "Branch.Code")) %>%
   #only missing library branch code is LHQ which i am unable to ascertain what this library is
   group_by(Branch.Heading, format(Date, "%Y/%m")) %>%
-  summarise(count = n(),
+  dplyr::summarise(count = n(),
             Date = format(Date, "%Y/%m")) %>%
   unique() %>%
   arrange(Date,
@@ -204,7 +277,7 @@ checkouts_grouped_month_year <- checkouts %>%
          Branch3BookCount = lead(count,2),
          Comments_1 = glue("The library with the most books borrowed was {Branch1} Library with a total of {Branch1BookCount} books borrowed."),
          Comments_2 = glue("The library with the second most books borrowed was {Branch2} Library with a total of {Branch2BookCount} books borrowed."),
-         Comments_3 = glue("The library with the most books borrowed was {Branch3} Library with a total of {Branch3BookCount} books borrowed."),
+         Comments_3 = glue("The library with the third most books borrowed was {Branch3} Library with a total of {Branch3BookCount} books borrowed."),
          Details = NA) %>%
   top_n(n=1, wt = count) %>%
   select(-Branch.Heading,
